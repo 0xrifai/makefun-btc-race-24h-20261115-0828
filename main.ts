@@ -60,6 +60,13 @@ const TAKE_BPS = 300;
 const STOP_BPS = 150;
 // Exit: give up after this many bars held.
 const MAX_HOLD_BARS = 120;
+// Do not open a new position this close to the end of the window: an
+// entry needs up to MAX_HOLD_BARS to play out, and one opened in the final
+// stretch would be flattened at the last close after only a few bars of
+// exposure while still paying the full round-trip cost. The dev window's
+// entries (bars 824 and 994 of 1440) are far from this cutoff, so it does
+// not change the dev result — it only guards the unseen race window.
+const NO_ENTRY_LAST_BARS = 120;
 // Max move from the latest close the bot will accept a fill at.
 const MAX_SLIPPAGE_BPS = 300;
 const BPS = 10_000n;
@@ -119,9 +126,12 @@ function onBatch(state: BarsState, _batch: Batch): OrderInput[] {
   }
 
   // --- Entry: flat, and the bar closed deep below the trailing high.
+  // Both windows of this race are 1440 one-minute bars, so a batch seq of
+  // 1320 or later is the final 120 bars: no fresh entries there.
   if (qty === 0n) {
     memory.entryClose = null;
     memory.heldBars = 0;
+    if (state.seq >= state.warmupBars + 1440 - NO_ENTRY_LAST_BARS) return [];
     const high = trailingHigh();
     if (high !== null && memory.closes.length >= LOOKBACK_BARS) {
       const dipped =
